@@ -2,52 +2,28 @@ package com.intercorp.entrevista.Services;
 
 import com.intercorp.entrevista.Config.ConnectionDB;
 import com.intercorp.entrevista.Model.Client;
+import com.intercorp.entrevista.Model.ClientList;
 import com.intercorp.entrevista.Model.KPIClients;
-import lombok.extern.flogger.Flogger;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
 
 import java.sql.*;
 import java.util.ArrayList;
+import java.util.Calendar;
 import java.util.List;
 
+@Service
 public class ClientServices {
 
-    static Connection connection = ConnectionDB.getRemoteConnection();
-    static PreparedStatement preparedStatement;
-    protected static Logger logger = LoggerFactory.getLogger(ClientServices.class);
+    public static final String QUERY = "select * from client";
+    @Autowired
+    private static Connection connection = ConnectionDB.getRemoteConnection();
+    @Autowired
+    private static PreparedStatement preparedStatement;
 
     public static Client insertClient(Client client) throws Exception {
         String query = "insert into client (first_name,last_name,age,date) values (?,?,?,?)";
         return connectionDBPOST(client, query);
-    }
-
-    public List<Client> obtainClients() throws Exception {
-        String query= "select * from client";
-        return connectionDBPGET(query);
-    }
-
-    public KPIClients kpiClients() throws Exception {
-        KPIClients kpiClients = new KPIClients();
-        double varianza = 0, desviacion, prom = 0;
-
-        String query= "select * from client";
-        List<Client> clients = connectionDBPGET(query);
-        for(int i=0;i<clients.size();i++){
-            prom = prom + clients.get(i).getAge();
-        }
-        prom = prom/clients.size();
-
-        for(int i=0;i<clients.size();i++){
-            Double variacion = Math.pow(clients.get(i).getAge() - prom, 2f);
-            varianza = varianza + variacion;
-        }
-        varianza = varianza / clients.size();
-        desviacion = Math.sqrt(varianza);
-
-        kpiClients.setPromedioEdad(prom);
-        kpiClients.setDesviacion(desviacion);
-        return kpiClients;
     }
 
     private static Client connectionDBPOST(Client client, String query) throws Exception {
@@ -71,9 +47,60 @@ public class ClientServices {
         }
     }
 
-    private List<Client> connectionDBPGET(String query) throws Exception {
+    public List<ClientList> obtainClients() throws Exception {
+        List<Client> clients = connectionDBPGET(QUERY);
+        List<ClientList> clientLists = new ArrayList<>();
+        Integer lifespan = 75;
+        for (int i = 0; i < clients.size(); i++) {
+            ClientList clientList = new ClientList();
+            clientList.setAge(clients.get(i).getAge());
+            clientList.setBirthDate(clients.get(i).getBirthDate());
+            clientList.setFirstName(clients.get(i).getFirstName());
+            clientList.setLastName(clients.get(i).getLastName());
+            clientList.setPossiblyDeath(possibleDeath(clients.get(i).getBirthDate(), lifespan));
+
+            clientLists.add(clientList);
+        }
+        return clientLists;
+    }
+
+    public KPIClients kpiClients() throws Exception {
+        KPIClients kpiClients = new KPIClients();
+        double variance = 0, deviation, average = 0;
+
+        List<Client> clients = connectionDBPGET(QUERY);
+        if (clients.size() != 0) {
+            average = getAverage(average, clients);
+            deviation = getDeviation(variance, average, clients);
+
+            kpiClients.setAverageAge(average);
+            kpiClients.setDeviation(deviation);
+        }
+        return kpiClients;
+    }
+
+    private double getDeviation(double variance, double average, List<Client> clients) {
+        double deviation;
+        for (int i = 0; i < clients.size(); i++) {
+            Double variation = Math.pow(clients.get(i).getAge() - average, 2f);
+            variance += variation;
+        }
+        variance = variance / clients.size();
+        deviation = Math.sqrt(variance);
+        return deviation;
+    }
+
+    private double getAverage(double average, List<Client> clients) {
+        for (int i = 0; i < clients.size(); i++) {
+            average += clients.get(i).getAge();
+        }
+        average = average / clients.size();
+        return average;
+    }
+
+    List<Client> connectionDBPGET(String query) throws Exception {
         try {
-            List<Client> clients = new ArrayList<Client>();
+            List<Client> clients = new ArrayList<>();
             Statement st = connection.createStatement();
             ResultSet resultSet = st.executeQuery(query);
 
@@ -94,5 +121,12 @@ public class ClientServices {
             e.printStackTrace();
             throw new Exception(e.getCause());
         }
+    }
+
+    private Date possibleDeath(Date birthDate, Integer lifespan) {
+        Calendar calendar = Calendar.getInstance();
+        calendar.setTime(birthDate);
+        calendar.add(Calendar.YEAR, lifespan);
+        return new java.sql.Date((calendar.getTime()).getTime());
     }
 }
